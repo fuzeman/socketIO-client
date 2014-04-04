@@ -19,11 +19,14 @@ log = logging.getLogger(__name__)
 
 class _AbstractTransport(object):
 
-    def __init__(self):
+    def __init__(self, json_dumps, json_loads):
         self._packet_id = 0
         self._callback_by_packet_id = {}
         self._wants_to_disconnect = False
         self._packets = []
+
+        self.dumps = json_dumps
+        self.loads = json_loads
 
     def disconnect(self, path=''):
         if not path:
@@ -48,12 +51,12 @@ class _AbstractTransport(object):
             code = 3
         else:
             code = 4
-            data = json.dumps(data, ensure_ascii=False)
+            data = self.dumps(data, ensure_ascii=False)
 
         self.send_packet(code, path, data, callback)
 
     def emit(self, path, event, args, callback):
-        data = json.dumps(dict(name=event, args=args), ensure_ascii=False)
+        data = self.dumps(dict(name=event, args=args), ensure_ascii=False)
 
         self.send_packet(5, path, data, callback)
 
@@ -62,7 +65,7 @@ class _AbstractTransport(object):
 
         data = '%s+%s' % (
             packet_id,
-            json.dumps(args, ensure_ascii=False),
+            self.dumps(args, ensure_ascii=False),
         ) if args else packet_id
 
         self.send_packet(6, path, data)
@@ -130,8 +133,9 @@ class _AbstractTransport(object):
 
 class _WebsocketTransport(_AbstractTransport):
 
-    def __init__(self, socketIO_session, is_secure, base_url, **kw):
-        super(_WebsocketTransport, self).__init__()
+    def __init__(self, socketIO_session, is_secure, base_url,
+                 json_dumps, json_loads, **kw):
+        super(_WebsocketTransport, self).__init__(json_dumps, json_loads)
 
         url = '%s://%s/websocket/%s' % (
             'wss' if is_secure else 'ws',
@@ -181,8 +185,9 @@ class _WebsocketTransport(_AbstractTransport):
 
 class _XHR_PollingTransport(_AbstractTransport):
 
-    def __init__(self, socketIO_session, is_secure, base_url, **kw):
-        super(_XHR_PollingTransport, self).__init__()
+    def __init__(self, socketIO_session, is_secure, base_url,
+                 json_dumps, json_loads, **kw):
+        super(_XHR_PollingTransport, self).__init__(json_dumps, json_loads)
 
         self._url = '%s://%s/xhr-polling/%s' % (
             'https' if is_secure else 'http',
@@ -244,8 +249,9 @@ class _JSONP_PollingTransport(_AbstractTransport):
 
     RESPONSE_PATTERN = re.compile(r'io.j\[(\d+)\]\("(.*)"\);')
 
-    def __init__(self, socketIO_session, is_secure, base_url, **kw):
-        super(_JSONP_PollingTransport, self).__init__()
+    def __init__(self, socketIO_session, is_secure, base_url,
+                 json_dumps, json_loads, **kw):
+        super(_JSONP_PollingTransport, self).__init__(json_dumps, json_loads)
 
         self._url = '%s://%s/jsonp-polling/%s' % (
             'https' if is_secure else 'http',
@@ -273,7 +279,7 @@ class _JSONP_PollingTransport(_AbstractTransport):
             self._http_session.post,
             self._url,
             params=self._params,
-            data='d=%s' % requests.utils.quote(json.dumps(packet_text)),
+            data='d=%s' % requests.utils.quote(self.dumps(packet_text)),
             headers={'content-type': 'application/x-www-form-urlencoded'},
             timeout=TIMEOUT_IN_SECONDS
         )
@@ -315,8 +321,9 @@ class _JSONP_PollingTransport(_AbstractTransport):
         self._connected = False
 
 
-def _negotiate_transport(client_supported_transports, session,
-                         is_secure, base_url, **kw):
+def _negotiate_transport(client_supported_transports, session, is_secure,
+                         base_url, dumps, loads, **kw):
+
     server_supported_transports = session.server_supported_transports
 
     for supported_transport in client_supported_transports:
@@ -327,7 +334,7 @@ def _negotiate_transport(client_supported_transports, session,
                 'websocket': _WebsocketTransport,
                 'xhr-polling': _XHR_PollingTransport,
                 'jsonp-polling': _JSONP_PollingTransport,
-            }[supported_transport](session, is_secure, base_url, **kw)
+            }[supported_transport](session, is_secure, base_url, dumps, loads, **kw)
 
     raise SocketIOError(' '.join([
         'could not negotiate a transport:',

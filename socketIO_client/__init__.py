@@ -129,13 +129,17 @@ class SocketIO(object):
         proxies={'https': 'https://proxy.example.com:8080'})
     """
 
-    def __init__(self, host, port=None, Namespace=BaseNamespace,
-                 wait_for_connection=True, transports=TRANSPORTS, **kw):
+    def __init__(self, host, port=None, Namespace=BaseNamespace, wait_for_connection=True,
+                 transports=TRANSPORTS, json_dumps=None, json_loads=None, **kw):
+
         self.is_secure, self.base_url = _parse_host(host, port)
         self.wait_for_connection = wait_for_connection
         self._namespace_by_path = {}
         self.client_supported_transports = transports
         self.kw = kw
+
+        self.dumps = json_dumps or json.dumps
+        self.loads = json_loads or json.loads
 
         self.define(Namespace)
 
@@ -287,7 +291,9 @@ class SocketIO(object):
         # Negotiate transport
         transport = _negotiate_transport(
             self.client_supported_transports, socketIO_session,
-            self.is_secure, self.base_url, **self.kw
+            self.is_secure, self.base_url,
+            self.dumps, self.loads,
+            **self.kw
         )
 
         # Update namespaces
@@ -349,7 +355,7 @@ class SocketIO(object):
 
     def _on_json(self, packet, find_event_callback):
         code, packet_id, path, data = packet
-        args = [json.loads(data)]
+        args = [self.loads(data)]
 
         if packet_id:
             args.append(self._prepare_to_send_ack(path, packet_id))
@@ -358,7 +364,7 @@ class SocketIO(object):
 
     def _on_event(self, packet, find_event_callback):
         code, packet_id, path, data = packet
-        value_by_name = json.loads(data)
+        value_by_name = self.loads(data)
         event = value_by_name['name']
         args = value_by_name.get('args', [])
 
@@ -377,7 +383,7 @@ class SocketIO(object):
         except KeyError:
             return
 
-        args = json.loads(data_parts[1]) if len(data_parts) > 1 else []
+        args = self.loads(data_parts[1]) if len(data_parts) > 1 else []
 
         ack_callback(*args)
 
