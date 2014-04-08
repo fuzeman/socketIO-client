@@ -6,7 +6,8 @@ from collections import namedtuple
 from urlparse import urlparse
 
 from .exceptions import ConnectionError, TimeoutError, PacketError
-from .transports import _get_response, _negotiate_transport, TRANSPORTS
+from .helpers import get_response
+from .transports import negotiate_transport, TRANSPORT_ORDER
 
 
 _SocketIOSession = namedtuple('_SocketIOSession', [
@@ -130,7 +131,7 @@ class SocketIO(object):
     """
 
     def __init__(self, host, port=None, Namespace=BaseNamespace, wait_for_connection=True,
-                 transports=TRANSPORTS, json_dumps=None, json_loads=None, **kw):
+                 transports=TRANSPORT_ORDER, json_dumps=None, json_loads=None, **kw):
 
         self.is_secure, self.base_url = _parse_host(host, port)
         self.wait_for_connection = wait_for_connection
@@ -154,7 +155,7 @@ class SocketIO(object):
 
     def define(self, Namespace, path=''):
         if path:
-            self._transport.connect(path)
+            self._transport.send_connect(path)
 
         namespace = Namespace(self._transport, path)
 
@@ -289,17 +290,20 @@ class SocketIO(object):
         self.heartbeat_pacemaker.next()
 
         # Negotiate transport
-        transport = _negotiate_transport(
+        transport = negotiate_transport(
             self.client_supported_transports, socketIO_session,
             self.is_secure, self.base_url,
             self.dumps, self.loads,
             **self.kw
         )
 
+        # Connect transport
+        transport.connect()
+
         # Update namespaces
         for path, namespace in self._namespace_by_path.iteritems():
             namespace._transport = transport
-            transport.connect(path)
+            transport.send_connect(path)
 
         return transport
 
@@ -460,7 +464,7 @@ def _get_socketIO_session(is_secure, base_url, **kw):
     server_url = '%s://%s/' % ('https' if is_secure else 'http', base_url)
 
     try:
-        response = _get_response(requests.get, server_url, **kw)
+        response = get_response(requests.get, server_url, **kw)
     except TimeoutError as e:
         raise ConnectionError(e)
 
